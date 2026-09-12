@@ -1,0 +1,470 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+button{cursor:pointer;font-family:inherit}
+</style>
+
+<h2 class="sr-only">Nova Bank Credit Risk Dashboard — analysis of 32,581 loans across the USA, UK, and Canada, with an overall default rate of 21.8%</h2>
+
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script>
+const {useState,useEffect,useRef}=React;
+
+const S={
+  safe:"#0f9b68",warn:"#b97300",danger:"#d63e3e",
+  accent:"#2e6fd1",purple:"#6d3ea8",
+  grid:"#e1e0d9",axis:"#898781",text:"#52514e",
+  tipBg:"var(--surface-2,#f3f3f0)",tipBorder:"var(--border,#e1e0d9)"
+};
+function rc(r){return r<15?S.safe:r<30?S.warn:S.danger}
+
+const GRADE=[
+  {g:"A",rate:10.0,n:10777},{g:"B",rate:16.3,n:10451},
+  {g:"C",rate:20.7,n:6458},{g:"D",rate:59.0,n:3626},
+  {g:"E",rate:64.4,n:964},{g:"F",rate:70.5,n:241},{g:"G",rate:98.4,n:64}
+];
+const INT_RATE=[
+  {b:"< 8%",r:9.3},{b:"8–12%",r:15.8},{b:"12–16%",r:31.7},{b:"16–20%",r:61.9},{b:"> 20%",r:85.1}
+];
+const OWN=[{t:"Own",r:7.5},{t:"Mortgage",r:12.6},{t:"Rent",r:31.6},{t:"Other",r:30.8}];
+const EMP=[{l:"< 1 yr",r:27.8},{l:"1–3 yr",r:23.0},{l:"3–5 yr",r:19.9},{l:"5–10 yr",r:18.1},{l:"10+ yr",r:16.3}];
+const INCOME=[{l:"Q1 Low",r:39.7},{l:"Q2",r:21.3},{l:"Q3",r:17.1},{l:"Q4 High",r:9.1}];
+const DTI=[{l:"Q1 Low",r:11.5},{l:"Q2",r:14.1},{l:"Q3",r:19.2},{l:"Q4 High",r:42.4}];
+const INTENT=[
+  {i:"Debt consol.",r:28.6},{i:"Medical",r:26.7},{i:"Home impr.",r:26.1},
+  {i:"Personal",r:19.9},{i:"Education",r:17.2},{i:"Venture",r:14.8}
+];
+const CORR=[
+  {f:"Loan/income ratio",r:38.6,pos:true},{f:"Interest rate",r:33.5,pos:true},
+  {f:"Debt/income ratio",r:32.2,pos:true},{f:"Loan amount",r:10.5,pos:true},
+  {f:"Annual income",r:-14.4,pos:false},{f:"Employment length",r:-8.2,pos:false}
+];
+const SEGS=[
+  {l:"Own · no prior default",r:6.8,tag:"Safest"},
+  {l:"Mortgage · no prior default",r:9.8,tag:"Low risk"},
+  {l:"Rent · no prior default",r:27.8,tag:"Moderate"},
+  {l:"Own · prior default",r:10.8,tag:"Watch"},
+  {l:"Mortgage · prior default",r:28.7,tag:"High risk"},
+  {l:"Other · no prior default",r:21.8,tag:"Monitor"},
+  {l:"Rent · prior default",r:46.9,tag:"Very high"},
+  {l:"Other · prior default",r:55.2,tag:"Critical"}
+];
+
+function Card({children,style={}}){
+  return React.createElement("div",{style:{background:"var(--surface-1,#fff)",border:"0.5px solid var(--border,#e1e0d9)",borderRadius:12,padding:"16px 18px",...style}},children);
+}
+function SH({title,sub}){
+  return React.createElement("div",{style:{marginBottom:12}},
+    React.createElement("div",{style:{fontWeight:500,fontSize:14,color:"var(--text-primary,#0b0b0b)"}},title),
+    sub&&React.createElement("div",{style:{fontSize:12,color:"var(--text-secondary,#52514e)",marginTop:3}},sub)
+  );
+}
+function KPI({label,value,sub,col}){
+  return React.createElement("div",{style:{background:"var(--surface-1,#fff)",border:"0.5px solid var(--border,#e1e0d9)",borderRadius:12,padding:"14px 16px",borderTop:`3px solid ${col}`}},
+    React.createElement("div",{style:{fontSize:10,textTransform:"uppercase",letterSpacing:"0.07em",color:"var(--text-muted,#898781)"}},label),
+    React.createElement("div",{style:{fontSize:26,fontWeight:500,color:"var(--text-primary,#0b0b0b)",margin:"5px 0 2px",letterSpacing:-0.5}},value),
+    sub&&React.createElement("div",{style:{fontSize:11,color:"var(--text-secondary,#52514e)"}},sub)
+  );
+}
+function Ins({icon,text,col}){
+  return React.createElement("div",{style:{background:`${col}14`,border:`0.5px solid ${col}44`,borderRadius:8,padding:"10px 12px",display:"flex",gap:8,marginTop:10}},
+    React.createElement("span",{style:{fontSize:13,flexShrink:0,marginTop:1}},icon),
+    React.createElement("span",{style:{fontSize:12,color:"var(--text-primary,#0b0b0b)",lineHeight:1.6}},text)
+  );
+}
+function LeftBorderedCard({children,col,style={}}){
+  return React.createElement("div",{style:{background:"var(--surface-0,#f3f3f0)",borderLeft:`3px solid ${col}`,borderRadius:"0 8px 8px 0",padding:"12px 14px",...style}},children);
+}
+
+function BarC({id,labels,data,colors,horizontal,refLine,maxX,xFormatter}){
+  const ref=useRef();const inst=useRef();
+  useEffect(()=>{
+    if(!ref.current)return;
+    if(inst.current)inst.current.destroy();
+    const isDark=window.matchMedia("(prefers-color-scheme:dark)").matches;
+    const tc=isDark?"#898781":"#898781";
+    const gc=isDark?"rgba(255,255,255,0.08)":"#e1e0d9";
+    const cfg={
+      type:"bar",
+      data:{labels,datasets:[{data,backgroundColor:colors||data.map(v=>rc(v)),borderRadius:4,borderSkipped:false}]},
+      options:{
+        indexAxis:horizontal?"y":"x",
+        responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},tooltip:{
+          callbacks:{label:ctx=>`${ctx.parsed[horizontal?"x":"y"].toFixed(1)}%`},
+          backgroundColor:"var(--surface-2,#f3f3f0)",titleColor:tc,bodyColor:tc,
+          borderColor:"var(--border,#e1e0d9)",borderWidth:1,padding:8,cornerRadius:8
+        }},
+        scales:{
+          x:{
+            max:horizontal?maxX:undefined,
+            grid:{color:horizontal?gc:"transparent"},
+            border:{display:false},
+            ticks:{color:tc,font:{size:11},callback:horizontal?(v=>`${v>0?"+":""} ${v}%`):undefined}
+          },
+          y:{
+            max:horizontal?undefined:105,
+            grid:{color:horizontal?"transparent":gc},
+            border:{display:false},
+            ticks:{color:tc,font:{size:11},callback:horizontal?undefined:(v=>`${v}%`)}
+          }
+        }
+      }
+    };
+    if(refLine!==undefined){
+      cfg.plugins={...cfg.options.plugins};
+      cfg.options.plugins.annotation={annotations:{ref:{type:"line",[horizontal?"xMin":"yMin"]:refLine,[horizontal?"xMax":"yMax"]:refLine,borderColor:"#2e6fd1",borderWidth:1.5,borderDash:[5,4]}}};
+    }
+    inst.current=new Chart(ref.current,cfg);
+    return()=>inst.current&&inst.current.destroy();
+  },[]);
+  return React.createElement("div",{style:{position:"relative",width:"100%",height:"100%"}},
+    React.createElement("canvas",{id,ref,"aria-hidden":"true"})
+  );
+}
+
+function LineC({id,labels,data}){
+  const ref=useRef();const inst=useRef();
+  useEffect(()=>{
+    if(!ref.current)return;
+    if(inst.current)inst.current.destroy();
+    const isDark=window.matchMedia("(prefers-color-scheme:dark)").matches;
+    const tc="#898781";const gc=isDark?"rgba(255,255,255,0.08)":"#e1e0d9";
+    inst.current=new Chart(ref.current,{
+      type:"line",
+      data:{labels,datasets:[{data,borderColor:S.warn,borderWidth:2.5,pointBackgroundColor:S.warn,pointBorderColor:"#fff",pointBorderWidth:2,pointRadius:5,tension:0.3,fill:false}]},
+      options:{
+        responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.parsed.y.toFixed(1)}%`},backgroundColor:"var(--surface-2,#f3f3f0)",titleColor:tc,bodyColor:tc,borderColor:"var(--border,#e1e0d9)",borderWidth:1,padding:8,cornerRadius:8}},
+        scales:{
+          x:{grid:{display:false},border:{display:false},ticks:{color:tc,font:{size:11}}},
+          y:{min:14,max:30,grid:{color:gc},border:{display:false},ticks:{color:tc,font:{size:11},callback:v=>`${v}%`}}
+        }
+      }
+    });
+    return()=>inst.current&&inst.current.destroy();
+  },[]);
+  return React.createElement("div",{style:{position:"relative",width:"100%",height:"100%"}},
+    React.createElement("canvas",{id,ref,"aria-hidden":"true"})
+  );
+}
+
+function Tab0(){
+  return React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:14}},
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}},
+      React.createElement(KPI,{label:"Total loans",value:"32,581",sub:"USA · UK · Canada",col:S.accent}),
+      React.createElement(KPI,{label:"Portfolio default rate",value:"21.8%",sub:"7,103 loans defaulted",col:S.danger}),
+      React.createElement(KPI,{label:"Avg income — non-default",value:"$70,804",sub:"vs $49,126 for defaulted loans",col:S.safe}),
+      React.createElement(KPI,{label:"Top risk signal",value:"LTI ratio",sub:"Pearson r = 0.386 with default",col:S.warn})
+    ),
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1.15fr 0.85fr",gap:12}},
+      React.createElement(Card,null,
+        React.createElement(SH,{title:"Risk factor correlation with default",sub:"Pearson r × 100 — red increases default risk, green reduces it"}),
+        React.createElement("div",{style:{height:210}},React.createElement(BarC,{id:"corrChart",labels:CORR.map(d=>d.f),data:CORR.map(d=>d.r),colors:CORR.map(d=>d.pos?S.danger:S.safe),horizontal:true,maxX:45}))
+      ),
+      React.createElement(Card,null,
+        React.createElement(SH,{title:"Default rate by loan grade",sub:"Sharp cliff between grade C and D defines portfolio risk"}),
+        React.createElement("div",{style:{height:210}},React.createElement(BarC,{id:"gradeChart",labels:GRADE.map(d=>d.g),data:GRADE.map(d=>d.rate),refLine:21.8}))
+      )
+    ),
+    React.createElement(Card,null,
+      React.createElement(SH,{title:"Key findings at a glance"}),
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}},
+        [{icon:"📉",col:S.danger,text:"LTI ratio is the #1 predictor of default (r = 0.386). Borrowers where repayment exceeds 35% of income are extreme-risk."},
+         {icon:"🏠",col:S.warn,text:"Renters default at 31.6% vs 7.5% for homeowners — housing stability is a 4.2× spread worth weighting heavily in underwriting."},
+         {icon:"⚠️",col:S.danger,text:"Prior default on file doubles risk: 37.8% vs 18.4%. This single flag should trigger automatic senior underwriter review."},
+         {icon:"💰",col:S.safe,text:"High-income Q4 borrowers default at 9.1% vs 39.7% for Q1 low-income. Income is the strongest protective borrower-level factor."},
+         {icon:"🌍",col:S.accent,text:"USA, UK, and Canada share identical default rates (~21.8%). Risk lives in borrower financials — not geography or demographics."},
+         {icon:"📊",col:S.warn,text:"Grades D–G (13.5% of portfolio) generate disproportionate defaults. Grade G approaches 100% default rate — near-certain loss."}
+        ].map((ins,i)=>React.createElement("div",{key:i,style:{background:`${ins.col}12`,border:`0.5px solid ${ins.col}40`,borderRadius:8,padding:"10px 12px",display:"flex",gap:8}},
+          React.createElement("span",{style:{fontSize:13,flexShrink:0,marginTop:1}},ins.icon),
+          React.createElement("span",{style:{fontSize:12,color:"var(--text-primary,#0b0b0b)",lineHeight:1.6}},ins.text)
+        ))
+      )
+    )
+  );
+}
+
+function Tab1(){
+  return React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:14}},
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}},
+      React.createElement(Card,null,
+        React.createElement(SH,{title:"Interest rate band vs default rate",sub:"Rate tracks actual default outcome — high-rate loans are near-certain losses"}),
+        React.createElement("div",{style:{height:185}},React.createElement(BarC,{id:"intChart",labels:INT_RATE.map(d=>d.b),data:INT_RATE.map(d=>d.r),refLine:21.8})),
+        React.createElement(Ins,{icon:"🔥",col:S.danger,text:"Loans above 16% interest default at 62–85%. These require strict issuance controls — the rate prices in risk but does not prevent it."})
+      ),
+      React.createElement(Card,null,
+        React.createElement(SH,{title:"Prior default history",sub:"The single most binary risk signal in the dataset"}),
+        React.createElement("div",{style:{display:"flex",gap:12,margin:"14px 0"}},
+          [{s:"No prior default",r:18.4},{s:"Prior default on file",r:37.8}].map((d,i)=>
+            React.createElement("div",{key:i,style:{flex:1,textAlign:"center",padding:"20px 10px",background:"var(--surface-0,#f3f3f0)",borderRadius:10,border:`2px solid ${rc(d.r)}`}},
+              React.createElement("div",{style:{fontSize:11,color:"var(--text-secondary,#52514e)"}},d.s),
+              React.createElement("div",{style:{fontSize:46,fontWeight:500,color:rc(d.r),margin:"6px 0 2px",letterSpacing:-1}},`${d.r}%`),
+              React.createElement("div",{style:{fontSize:11,color:"var(--text-muted,#898781)"}},"default rate")
+            )
+          )
+        ),
+        React.createElement(Ins,{icon:"🚨",col:S.danger,text:"Prior defaulters are 2.05× more likely to default again. Require extra documentation, reduced limits, or co-signers for all Y applicants."})
+      )
+    ),
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}},
+      React.createElement(Card,null,
+        React.createElement(SH,{title:"Home ownership vs default rate",sub:"Stable housing correlates strongly with loan repayment"}),
+        React.createElement("div",{style:{height:170}},React.createElement(BarC,{id:"ownChart",labels:OWN.map(d=>d.t),data:OWN.map(d=>d.r),refLine:21.8})),
+        React.createElement(Ins,{icon:"🏠",col:S.warn,text:"Renters (31.6%) default at 4.2× the rate of homeowners (7.5%). Use housing status as a weighting factor — not a disqualifier."})
+      ),
+      React.createElement(Card,null,
+        React.createElement(SH,{title:"Employment length vs default rate",sub:"Career stability is a steady protective factor"}),
+        React.createElement("div",{style:{height:170}},React.createElement(LineC,{id:"empChart",labels:EMP.map(d=>d.l),data:EMP.map(d=>d.r)})),
+        React.createElement(Ins,{icon:"💼",col:S.accent,text:"New employees (< 1 yr) default at 27.8%; those with 10+ years at 16.3%. Award employment stability points in scoring models."})
+      )
+    ),
+    React.createElement(Card,null,
+      React.createElement(SH,{title:"Risk segmentation — housing × prior default",sub:"Combining two strong signals reveals the widest spread in the entire dataset"}),
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}},
+        SEGS.map((s,i)=>React.createElement(LeftBorderedCard,{key:i,col:rc(s.r)},
+          React.createElement("div",{style:{fontSize:11,color:"var(--text-secondary,#52514e)",lineHeight:1.4,marginBottom:4}},s.l),
+          React.createElement("div",{style:{fontSize:24,fontWeight:500,color:rc(s.r)}},`${s.r}%`),
+          React.createElement("div",{style:{fontSize:11,color:"var(--text-muted,#898781)",marginTop:2}},s.tag)
+        ))
+      )
+    )
+  );
+}
+
+function Tab2(){
+  const metrics=[
+    {l:"Annual income",nd:"$70,804",d:"$49,126"},
+    {l:"Loan amount",nd:"$9,237",d:"$10,851"},
+    {l:"Interest rate",nd:"10.4%",d:"13.1%"},
+    {l:"Loan / income",nd:"14.9%",d:"24.7%"},
+    {l:"Debt / income",nd:"32.3%",d:"42.4%"},
+    {l:"Employment yrs",nd:"5.0 yr",d:"4.1 yr"},
+  ];
+  return React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:14}},
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}},
+      React.createElement(Card,null,
+        React.createElement(SH,{title:"Income quartile vs default rate",sub:"Income is the most protective borrower-level factor in the dataset"}),
+        React.createElement("div",{style:{height:185}},React.createElement(BarC,{id:"incChart",labels:INCOME.map(d=>d.l),data:INCOME.map(d=>d.r),refLine:21.8})),
+        React.createElement(Ins,{icon:"💰",col:S.safe,text:"High-income Q4 defaults at 9.1% — over 4× safer than Q1 low-income (39.7%). Tiered loan maximums by income quartile are strongly recommended."})
+      ),
+      React.createElement(Card,null,
+        React.createElement(SH,{title:"Debt-to-income ratio vs default rate",sub:"Total debt burden is a critical early warning signal"}),
+        React.createElement("div",{style:{height:185}},React.createElement(BarC,{id:"dtiChart",labels:DTI.map(d=>d.l),data:DTI.map(d=>d.r),refLine:21.8})),
+        React.createElement(Ins,{icon:"📈",col:S.danger,text:"High-DTI Q4 defaults at 42.4% — nearly 4× the Q1 low-DTI group (11.5%). A hard 40% DTI ceiling should trigger automatic senior review."})
+      )
+    ),
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1.4fr 0.8fr 0.8fr",gap:12}},
+      React.createElement(Card,null,
+        React.createElement(SH,{title:"Mean financials: non-default vs defaulted loans"}),
+        React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:7}},
+          metrics.map((r,i)=>React.createElement("div",{key:i,style:{display:"grid",gridTemplateColumns:"110px 1fr 1fr",gap:7,alignItems:"center"}},
+            React.createElement("div",{style:{fontSize:12,color:"var(--text-secondary,#52514e)"}},r.l),
+            React.createElement("div",{style:{background:"#0f9b6818",borderRadius:6,padding:"5px 8px",textAlign:"center"}},
+              React.createElement("div",{style:{fontWeight:500,fontSize:12,color:"#0a7a52"}},r.nd),
+              React.createElement("div",{style:{fontSize:10,color:"var(--text-muted,#898781)"}},"Non-default")
+            ),
+            React.createElement("div",{style:{background:"#d63e3e18",borderRadius:6,padding:"5px 8px",textAlign:"center"}},
+              React.createElement("div",{style:{fontWeight:500,fontSize:12,color:"#b32f2f"}},r.d),
+              React.createElement("div",{style:{fontSize:10,color:"var(--text-muted,#898781)"}},"Defaulted")
+            )
+          ))
+        )
+      ),
+      React.createElement(Card,null,
+        React.createElement(SH,{title:"Gender",sub:"No meaningful difference"}),
+        React.createElement("div",{style:{display:"flex",gap:8,margin:"8px 0 10px"}},
+          [{l:"Male",r:21.8},{l:"Female",r:21.9}].map((d,i)=>
+            React.createElement("div",{key:i,style:{flex:1,textAlign:"center",background:"var(--surface-0,#f3f3f0)",borderRadius:8,padding:"12px 6px"}},
+              React.createElement("div",{style:{fontSize:11,color:"var(--text-secondary,#52514e)"}},d.l),
+              React.createElement("div",{style:{fontSize:24,fontWeight:500,color:S.warn,marginTop:5}},`${d.r}%`)
+            )
+          )
+        ),
+        React.createElement("div",{style:{fontSize:11,color:"var(--text-secondary,#52514e)",fontWeight:500,marginBottom:5}},"Education level"),
+        [["High school","22.1%"],["Bachelor's","21.4%"],["Master's","22.2%"],["PhD","21.2%"]].map((d,i)=>
+          React.createElement("div",{key:i,style:{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:i<3?"0.5px solid var(--border,#e1e0d9)":""}},
+            React.createElement("span",{style:{fontSize:12,color:"var(--text-secondary,#52514e)"}},d[0]),
+            React.createElement("span",{style:{fontSize:12,fontWeight:500,color:S.warn}},d[1])
+          )
+        ),
+        React.createElement(Ins,{icon:"⚖️",col:S.safe,text:"Gender and education add no predictive power. Removing them eliminates fair-lending legal exposure."})
+      ),
+      React.createElement(Card,null,
+        React.createElement(SH,{title:"Country",sub:"Near-identical rates"}),
+        React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:7,margin:"8px 0 10px"}},
+          [["🇺🇸 USA","21.9%"],["🇬🇧 UK","21.7%"],["🇨🇦 Canada","21.9%"]].map((d,i)=>
+            React.createElement("div",{key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",background:"var(--surface-0,#f3f3f0)",borderRadius:8,padding:"9px 12px"}},
+              React.createElement("span",{style:{fontSize:13,color:"var(--text-primary,#0b0b0b)"}},d[0]),
+              React.createElement("span",{style:{fontSize:15,fontWeight:500,color:S.warn}},d[1])
+            )
+          )
+        ),
+        React.createElement(Ins,{icon:"🌍",col:S.accent,text:"Geography does not predict default. Risk is driven entirely by borrower financial profile."}),
+        React.createElement("div",{style:{marginTop:10,fontSize:11,fontWeight:500,color:"var(--text-secondary,#52514e)",marginBottom:5}},"Age group"),
+        [["18–25","23.0%","15,352 loans"],["26–35","20.7%","13,763 loans"],["36–45","20.7%","2,814 loans"],["46–60","21.8%","582 loans"],["60+","26.2%","65 loans"]].map((d,i)=>
+          React.createElement("div",{key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0",borderBottom:i<4?"0.5px solid var(--border,#e1e0d9)":""}},
+            React.createElement("span",{style:{fontSize:11,color:"var(--text-secondary,#52514e)"}},d[0]),
+            React.createElement("div",{style:{textAlign:"right"}},
+              React.createElement("span",{style:{fontSize:12,fontWeight:500,color:parseFloat(d[1])>22.5?S.warn:S.safe}}," "+d[1]),
+              React.createElement("span",{style:{fontSize:10,color:"var(--text-muted,#898781)"}}," "+d[2])
+            )
+          )
+        )
+      )
+    )
+  );
+}
+
+function Tab3(){
+  const matrix=[
+    {g:"A",i:"Venture",r:5.7,tag:"Safest"},
+    {g:"A",i:"Education",r:9.3,tag:"Very safe"},
+    {g:"B",i:"Personal",r:18.2,tag:"Safe"},
+    {g:"E",i:"Education",r:43.2,tag:"Still high-risk"},
+    {g:"D",i:"Venture",r:40.1,tag:"High risk"},
+    {g:"D",i:"Debt consol.",r:92.7,tag:"Near-certain loss"},
+  ];
+  return React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:14}},
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}},
+      React.createElement(Card,null,
+        React.createElement(SH,{title:"Loan purpose vs default rate",sub:"Debt consolidation and medical loans signal pre-existing financial stress"}),
+        React.createElement("div",{style:{height:210}},React.createElement(BarC,{id:"intentChart",labels:INTENT.map(d=>d.i),data:INTENT.map(d=>d.r),horizontal:true,maxX:35,refLine:21.8})),
+        React.createElement(Ins,{icon:"🏥",col:S.warn,text:"Debt consolidation (28.6%) and medical (26.7%) borrowers already show financial stress. Venture (14.8%) attracts more financially secure applicants."})
+      ),
+      React.createElement(Card,null,
+        React.createElement(SH,{title:"Loan grade — default rate and volume",sub:"The break between C and D is the sharpest risk boundary in the portfolio"}),
+        React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:8,marginTop:4}},
+          GRADE.map((d,i)=>React.createElement("div",{key:i,style:{display:"flex",alignItems:"center",gap:10}},
+            React.createElement("span",{style:{fontWeight:500,fontSize:14,color:"var(--text-primary,#0b0b0b)",width:16}},d.g),
+            React.createElement("div",{style:{flex:1,background:"var(--surface-0,#f3f3f0)",borderRadius:3,height:20,overflow:"hidden"}},
+              React.createElement("div",{style:{width:`${Math.min(d.rate,100)}%`,background:rc(d.rate),height:"100%",borderRadius:3}})
+            ),
+            React.createElement("span",{style:{fontWeight:500,fontSize:13,color:rc(d.rate),width:44,textAlign:"right"}},`${d.rate}%`),
+            React.createElement("span",{style:{fontSize:11,color:"var(--text-muted,#898781)",width:52,textAlign:"right"}},d.n.toLocaleString())
+          ))
+        ),
+        React.createElement(Ins,{icon:"⚡",col:S.danger,text:"Grade G: 98.4% default across 64 loans. Grades F and G combined represent near-certain loss — require board-level approval to issue."})
+      )
+    ),
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"0.75fr 1.25fr",gap:12}},
+      React.createElement(Card,null,
+        React.createElement(SH,{title:"Loan term vs default rate",sub:"Term length is not a meaningful risk signal"}),
+        React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:8,marginTop:4}},
+          [["12 months","19.9%"],["24 months","22.1%"],["36 months","21.8%"],["60 months","22.3%"]].map((d,i)=>
+            React.createElement("div",{key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",background:"var(--surface-0,#f3f3f0)",borderRadius:8,padding:"10px 14px"}},
+              React.createElement("span",{style:{fontSize:13,color:"var(--text-primary,#0b0b0b)"}},d[0]),
+              React.createElement("span",{style:{fontSize:16,fontWeight:500,color:S.warn}},d[1])
+            )
+          )
+        ),
+        React.createElement(Ins,{icon:"📅",col:S.accent,text:"Only 2.4 percentage points separate all four loan terms. Term duration adds no meaningful predictive signal — focus scoring on other factors."})
+      ),
+      React.createElement(Card,null,
+        React.createElement(SH,{title:"Grade × intent matrix — selected combinations",sub:"Same loan purpose can span from safest to near-certain loss depending on grade"}),
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}},
+          matrix.map((x,i)=>React.createElement(LeftBorderedCard,{key:i,col:rc(x.r)},
+            React.createElement("div",{style:{fontSize:10,color:"var(--text-muted,#898781)",marginBottom:3}},`Grade ${x.g} · ${x.i}`),
+            React.createElement("div",{style:{fontSize:24,fontWeight:500,color:rc(x.r)}},`${x.r}%`),
+            React.createElement("div",{style:{fontSize:10,color:"var(--text-secondary,#52514e)",marginTop:2}},x.tag)
+          ))
+        ),
+        React.createElement(Ins,{icon:"💡",col:S.purple,text:"Grade D Debt Consolidation loans default at 92.7% — near-certain loss. This exact combination should require board-level approval and full collateral."})
+      )
+    )
+  );
+}
+
+function Tab4(){
+  const tops=[
+    {n:"01",f:"Loan-to-income ratio",d:"r = 0.386 — hard cap at 35% recommended",c:S.danger},
+    {n:"02",f:"Loan grade & interest rate",d:"r = 0.335 — grades D–G require policy action",c:S.danger},
+    {n:"03",f:"Debt-to-income ratio",d:"r = 0.322 — 40% DTI as senior review trigger",c:S.warn},
+    {n:"04",f:"Annual income",d:"r = −0.144 — tiered loan maximums by income quartile",c:S.warn},
+    {n:"05",f:"Prior default on file",d:"2.05× multiplier — mandatory auto-flag required",c:S.warn},
+  ];
+  const secs=[
+    {cat:"Immediate action",col:S.danger,items:[
+      {t:"Suspend Grade F & G issuance",d:"Default rates of 70–98% across 305 loans. Require board approval, full collateral, and independent review before any new issuance in these grades."},
+      {t:"Hard LTI cap at 35%",d:"LTI ratio is the #1 predictor (r = 0.386). No loan should exceed 35% of monthly income in repayment — implement as a hard system block, not soft guidance."},
+      {t:"Mandatory prior-default flag",d:"Prior defaulters are 2.05× more likely to default. Auto-trigger senior underwriter review, reduced approval limits, and co-signer requirements for any Y applicant."},
+    ]},
+    {cat:"Risk-based pricing and limits",col:S.warn,items:[
+      {t:"Reprice Grade D loans",d:"Grade D averages 15.4% interest yet defaults at 59%. Raise rates to reflect true risk, require collateral, or reduce the maximum loan amount for this grade tier."},
+      {t:"Income-adjusted loan ceilings",d:"Tiered maximums by income quartile: Q1-income borrowers should not exceed 20% of annual income as total loan amount — directly targets the highest-risk segment."},
+      {t:"DTI threshold for senior review",d:"Applicants with DTI > 40% default at 42.4%. Implement automated flagging in the origination system for mandatory senior review on all such applications."},
+    ]},
+    {cat:"Expansion and fair lending",col:S.safe,items:[
+      {t:"Grow Grade A–B homeowner segment",d:"Grade A homeowners default at under 6% — the safest, most profitable borrower profile. Design targeted products and streamline approvals for this segment."},
+      {t:"Expand education lending",d:"Education loans default at 17.2%, below the 21.8% portfolio average. Expanding this segment — especially Grades A–B — builds a safer growing portfolio."},
+      {t:"Remove geography and gender from scoring",d:"USA, UK, Canada and Male/Female show identical default rates (~21.8%). Removing them adds zero accuracy and eliminates potential fair-lending legal exposure."},
+    ]},
+    {cat:"Early warning and monitoring",col:S.purple,items:[
+      {t:"LTI early-warning alerts",d:"Flag accounts automatically where repayment exceeds 25% of monthly income. Proactive outreach before first missed payment is 3–4× more effective than post-default recovery."},
+      {t:"Medical loan hardship program",d:"Medical borrowers default at 26.7%, often due to ongoing health costs. Proactive deferral and restructuring programs for this segment reduce loss and retain customers."},
+      {t:"Short-term products for new employees",d:"Employees with < 1 yr tenure default at 27.8%. Offer shorter initial terms (12–24 months) with review and renewal paths — limits exposure while building credit history."},
+    ]},
+  ];
+  return React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:14}},
+    React.createElement(Card,null,
+      React.createElement(SH,{title:"Top 5 default predictors — evaluate in this order",sub:"For any new loan application, these signals should be scored first and carry the most weight"}),
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}},
+        tops.map((f,i)=>React.createElement("div",{key:i,style:{background:"var(--surface-0,#f3f3f0)",borderRadius:10,padding:"14px 12px",borderTop:`3px solid ${f.c}`}},
+          React.createElement("div",{style:{fontSize:22,fontWeight:500,color:f.c,opacity:0.45}},f.n),
+          React.createElement("div",{style:{fontWeight:500,fontSize:13,color:"var(--text-primary,#0b0b0b)",margin:"7px 0 4px",lineHeight:1.4}},f.f),
+          React.createElement("div",{style:{fontSize:11,color:"var(--text-secondary,#52514e)"}},f.d)
+        ))
+      )
+    ),
+    ...secs.map((s,i)=>React.createElement(Card,{key:i},
+      React.createElement("div",{style:{display:"flex",alignItems:"center",gap:9,marginBottom:12}},
+        React.createElement("div",{style:{width:3,height:18,background:s.col,borderRadius:2}}),
+        React.createElement("div",{style:{fontWeight:500,fontSize:14,color:"var(--text-primary,#0b0b0b)"}},s.cat)
+      ),
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}},
+        s.items.map((item,j)=>React.createElement(LeftBorderedCard,{key:j,col:s.col},
+          React.createElement("div",{style:{fontWeight:500,fontSize:13,color:"var(--text-primary,#0b0b0b)",marginBottom:5}},item.t),
+          React.createElement("div",{style:{fontSize:12,color:"var(--text-secondary,#52514e)",lineHeight:1.6}},item.d)
+        ))
+      )
+    ))
+  );
+}
+
+function App(){
+  const [tab,setTab]=useState(0);
+  const tabs=["Overview","Risk drivers","Borrower profile","Loan details","Policy insights"];
+  const panels=[React.createElement(Tab0),React.createElement(Tab1),React.createElement(Tab2),React.createElement(Tab3),React.createElement(Tab4)];
+  return React.createElement("div",{style:{fontFamily:"var(--font-sans,system-ui,sans-serif)",minHeight:"100vh",background:"var(--surface-0,#f3f3f0)"}},
+    React.createElement("div",{style:{background:"var(--surface-1,#fff)",borderBottom:"0.5px solid var(--border,#e1e0d9)",padding:"14px 22px 0"}},
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-end",paddingBottom:12}},
+        React.createElement("div",null,
+          React.createElement("div",{style:{fontSize:10,textTransform:"uppercase",letterSpacing:"0.1em",color:"var(--text-muted,#898781)",fontWeight:500,marginBottom:3}},"Nova Bank · Credit Risk Division"),
+          React.createElement("h1",{style:{fontSize:22,fontWeight:500,margin:0,color:"var(--text-primary,#0b0b0b)"}},"Credit Risk Analysis Dashboard")
+        ),
+        React.createElement("div",{style:{display:"flex",gap:18,alignItems:"center",paddingBottom:4}},
+          React.createElement("div",{style:{textAlign:"right"}},
+            React.createElement("div",{style:{fontSize:9,textTransform:"uppercase",letterSpacing:"0.07em",color:"var(--text-muted,#898781)"}},"Total loans"),
+            React.createElement("div",{style:{fontSize:15,fontWeight:500,color:"var(--text-primary,#0b0b0b)",marginTop:2}},"32,581")
+          ),
+          React.createElement("div",{style:{width:1,height:30,background:"var(--border,#e1e0d9)"}}),
+          React.createElement("div",{style:{textAlign:"right"}},
+            React.createElement("div",{style:{fontSize:9,textTransform:"uppercase",letterSpacing:"0.07em",color:"var(--text-muted,#898781)"}},"Portfolio default rate"),
+            React.createElement("div",{style:{fontSize:22,fontWeight:500,color:S.danger,marginTop:2}},"21.8%")
+          )
+        )
+      ),
+      React.createElement("div",{style:{display:"flex"}},
+        tabs.map((t,i)=>React.createElement("button",{key:i,onClick:()=>setTab(i),style:{background:"none",border:"none",padding:"8px 16px",fontSize:13,fontWeight:tab===i?500:400,color:tab===i?"var(--text-accent,#2e6fd1)":"var(--text-secondary,#52514e)",borderBottom:`2px solid ${tab===i?"var(--border-accent,#2e6fd1)":"transparent"}`,transition:"all 0.15s",fontFamily:"inherit",whiteSpace:"nowrap"}},t))
+      )
+    ),
+    React.createElement("div",{style:{padding:"18px 22px"}},panels[tab])
+  );
+}
+
+ReactDOM.render(React.createElement(App),document.getElementById("root"));
+</script>

@@ -78,13 +78,15 @@ This output is designed to feed directly into the Power BI operations watchlist.
 ---
 ## Power BI Dashboard
 
-![Executive Overview](powerbi/screenshots/page1_executive.png)
+![Executive Overview](powerbi/page1_executive.png)
 
-Key DAX measures:
-- `Default Rate %` — DIVIDE(defaulted loans, total loans) × 100
-- `Decision Tier` — SWITCH logic: Auto-Approve / Manual Review / Auto-Reject  
-- `Loss Exposure ($M)` — tổng loan_amnt của các khoản đã default
-- `Prior Default Rate %` — default rate của nhóm có prior default = Y
+Key DAX measures written from scratch:
+
+- `Default Rate %` — DIVIDE(total defaults, total loans) × 100
+- `Decision Tier` — SWITCH logic classifying borrowers into Auto-Approve / Manual Review / Auto-Reject
+- `Loss Exposure ($M)` — sum of loan_amnt for all defaulted loans
+- `Prior Default Rate %` — default rate calculated only for borrowers with prior default on file (Y)
+- `No Prior Default Rate %` — default rate for borrowers with clean record (N)
 - `Risk Multiplier` — Prior Default Rate / No Prior Default Rate = 2.06×
 
 ---

@@ -76,7 +76,18 @@ Each active borrower is scored across 8 risk flags (high LTI, high DTI, Grade D+
 This output is designed to feed directly into the Power BI operations watchlist.
 
 ---
+## Power BI Dashboard
 
+![Executive Overview](powerbi/screenshots/page1_executive.png)
+
+Key DAX measures:
+- `Default Rate %` — DIVIDE(defaulted loans, total loans) × 100
+- `Decision Tier` — SWITCH logic: Auto-Approve / Manual Review / Auto-Reject  
+- `Loss Exposure ($M)` — tổng loan_amnt của các khoản đã default
+- `Prior Default Rate %` — default rate của nhóm có prior default = Y
+- `Risk Multiplier` — Prior Default Rate / No Prior Default Rate = 2.06×
+
+---
 ## Policy Recommendations
 
 Based on the analysis, three immediate actions and three expansion opportunities:
